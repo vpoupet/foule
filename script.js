@@ -8,7 +8,6 @@ const agentRadius = .3;
 let room;
 
 
-
 class Vector {
     constructor(x = 0, y = 0) {
         this.x = x;
@@ -106,7 +105,7 @@ function getCircleContactAlongVector(p1, p2, v, d) {
     if (v2Normal > d) return Infinity;
     const v2Parallel = v2.dot(v);
     if (v2Parallel < 0) return Infinity;
-    return v2Parallel - Math.sqrt(d*d - v2Normal * v2Normal);
+    return v2Parallel - Math.sqrt(d * d - v2Normal * v2Normal);
 }
 
 class ObstacleVertex extends Vector {
@@ -234,6 +233,7 @@ class Room {
         this.doors = doors;
         this.obstacles = obstacles;
         this.agents = new Set();
+        this.isRunning = false;
 
         // compute neighbors for each vertex
         const vertices = [].concat(...this.obstacles.map(o => o.vertices));
@@ -408,13 +408,15 @@ class Room {
         const deltaTime = now - lastUpdate;
         lastUpdate = now;
 
-        for (const agent of this.agents) {
-            agent.update(deltaTime, this);
+        if (this.isRunning) {
+            for (const agent of this.agents) {
+                agent.update(deltaTime, this);
+            }
         }
+
         context.clearRect(0, 0, canvas.width, canvas.height);
         this.draw(context);
         requestAnimationFrame(this.update.bind(this));
-
     }
 }
 
@@ -444,7 +446,7 @@ class Agent {
 
     draw(context) {
         context.beginPath();
-        context.arc(this.position.x, this.position.y, agentRadius, 0, 2*Math.PI);
+        context.arc(this.position.x, this.position.y, agentRadius, 0, 2 * Math.PI);
         context.fill();
     }
 }
@@ -497,6 +499,23 @@ window.onload = function () {
     canvas.height = 750;
     context = canvas.getContext("2d");
 
+    let startButton = document.getElementById("start-button");
+    startButton.addEventListener("click", event => {
+        room.isRunning = !room.isRunning;
+        if (room.isRunning) {
+            startButton.innerHTML = "Pause";
+        } else {
+            startButton.innerHTML = "Start";
+        }
+    });
+
+    let clearButton = document.getElementById("clear-button");
+    clearButton.addEventListener("click", event => {
+        room.isRunning = false;
+        startButton.innerHTML = "Start";
+        room.agents.clear();
+    });
+
     canvas.addEventListener("click", event => {
         let collisionType;
         const collisionSelect = document.getElementsByName('collision-select');
@@ -510,7 +529,7 @@ window.onload = function () {
         const rect = document.getElementById("canvas").getBoundingClientRect();
         const x = (event.clientX - rect.left) / scale - shiftX;
         const y = (event.clientY - rect.top) / scale - shiftY;
-        switch(collisionType) {
+        switch (collisionType) {
             case "none":
                 room.agents.add(new Agent(new Vector(x, y), .001));
                 break;
