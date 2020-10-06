@@ -3,10 +3,17 @@
 <head>
     <meta charset="UTF-8">
     <title>Title</title>
-    <link rel="stylesheet" href="style.css" />
+    <link rel="stylesheet" href="style.css"/>
 </head>
 <body>
 <canvas id="canvas"></canvas>
+<div id="collision-select">
+    <input type="radio" id="no-collision" name="collision-select" value="none" checked>
+    <label for="no-collision">No collision</label>
+    <input type="radio" id="simple-collision" name="collision-select" value="simple">
+    <label for="simple-collision">Simple collision</label>
+</div>
 <script type="text/javascript" src="script.js"></script>
+
 </body>
 </html>

@@ -7,6 +7,8 @@ const shiftY = 1;
 const agentRadius = .3;
 let room;
 
+
+
 class Vector {
     constructor(x = 0, y = 0) {
         this.x = x;
@@ -43,6 +45,10 @@ class Vector {
 
     distanceTo(other) {
         return other.sub(this).norm();
+    }
+
+    squareDistanceTo(other) {
+        return other.sub(this).squareNorm();
     }
 
     orth() {
@@ -91,6 +97,16 @@ function segmentsIntersect(p1, p2, p3, p4) {
         return true;
     }
     return false;
+}
+
+
+function getCircleContactAlongVector(p1, p2, v, d) {
+    const v2 = p2.sub(p1);
+    const v2Normal = Math.abs(v2.dot(v.orth()));
+    if (v2Normal > d) return Infinity;
+    const v2Parallel = v2.dot(v);
+    if (v2Parallel < 0) return Infinity;
+    return v2Parallel - Math.sqrt(d*d - v2Normal * v2Normal);
 }
 
 class ObstacleVertex extends Vector {
@@ -410,22 +426,19 @@ class Agent {
     }
 
     update(deltaTime, room) {
-        let movement = this.speed * deltaTime;
-        while (movement > 0) {
+        let remainingMovement = this.speed * deltaTime;
+        while (remainingMovement > 0) {
             let target = room.targetFromPoint(this.position);
-            if (target === undefined) {
+            if (target === undefined) { // no path to exit (or already reached exit)
                 room.agents.delete(this);
                 return;
             }
 
-            let d = this.position.distanceTo(target);
-            if (d < movement) {
-                this.position = target;
-                movement -= d;
-            } else {
-                this.position = this.position.add(target.sub(this.position).normalize().mult(movement));
-                movement = 0;
-            }
+            let moveDistance = Math.min(remainingMovement, this.position.distanceTo(target));
+            remainingMovement -= moveDistance;
+            const v = target.sub(this.position).normalize();
+
+            this.position = this.position.add(v.mult(moveDistance));
         }
     }
 
@@ -434,7 +447,47 @@ class Agent {
         context.arc(this.position.x, this.position.y, agentRadius, 0, 2*Math.PI);
         context.fill();
     }
+}
 
+
+class SimpleCollisionAgent extends Agent {
+    update(deltaTime, room) {
+        let remainingMovement = this.speed * deltaTime;
+        while (remainingMovement > 0) {
+            let target = room.targetFromPoint(this.position);
+            if (target === undefined) { // no path to exit (or already reached exit)
+                room.agents.delete(this);
+                return;
+            }
+
+            let moveDistance = Math.min(remainingMovement, this.position.distanceTo(target));
+            remainingMovement -= moveDistance;
+
+            const v = target.sub(this.position).normalize();
+            let squareNeighborhood = moveDistance + 2 * agentRadius;
+            squareNeighborhood *= squareNeighborhood;
+
+            // check for collisions with other agents
+            for (const otherAgent of room.agents) {
+                if (otherAgent === this ||
+                    this.position.squareDistanceTo(otherAgent.position) > squareNeighborhood) {
+                    // no collision
+                    continue;
+                }
+                const u2 = otherAgent.position.sub(this.position);
+                const u2Normal = Math.abs(u2.dot(v.orth()));
+                if (u2Normal > 2 * agentRadius) continue;
+                const u2Parallel = u2.dot(v);
+                if (u2Parallel < 0) continue;
+                const collisionDistance = u2Parallel - Math.sqrt(4 * agentRadius * agentRadius - u2Normal * u2Normal);
+                if (collisionDistance < moveDistance) {
+                    moveDistance = collisionDistance;
+                    remainingMovement = 0;
+                }
+            }
+            this.position = this.position.add(v.mult(moveDistance));
+        }
+    }
 }
 
 
@@ -445,10 +498,28 @@ window.onload = function () {
     context = canvas.getContext("2d");
 
     canvas.addEventListener("click", event => {
+        let collisionType;
+        const collisionSelect = document.getElementsByName('collision-select');
+        for (const select of collisionSelect) {
+            if (select.checked) {
+                collisionType = select.value;
+                break;
+            }
+        }
+
         const rect = document.getElementById("canvas").getBoundingClientRect();
         const x = (event.clientX - rect.left) / scale - shiftX;
         const y = (event.clientY - rect.top) / scale - shiftY;
-        room.agents.add(new Agent(new Vector(x, y), .001));
+        switch(collisionType) {
+            case "none":
+                room.agents.add(new Agent(new Vector(x, y), .001));
+                break;
+            case "simple":
+                room.agents.add(new SimpleCollisionAgent(new Vector(x, y), .001));
+                break;
+            default:
+                break;
+        }
     });
 
     room = new Room(
