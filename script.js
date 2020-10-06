@@ -325,6 +325,9 @@ class Room {
 
     draw(ctx) {
         ctx.save();
+        context.scale(scale, scale);
+        context.translate(shiftX, shiftY);
+
         // draw doors
         ctx.lineWidth = .05;
         ctx.strokeStyle = "#ff0000";
@@ -346,7 +349,6 @@ class Room {
             ctx.fillStyle = "#0000ff";
             agent.draw(context);
         }
-
         ctx.restore();
     }
 
@@ -441,8 +443,6 @@ window.onload = function () {
     canvas.width = 1000;
     canvas.height = 750;
     context = canvas.getContext("2d");
-    context.scale(scale, scale);
-    context.translate(shiftX, shiftY);
 
     canvas.addEventListener("click", event => {
         const rect = document.getElementById("canvas").getBoundingClientRect();
@@ -466,24 +466,24 @@ window.onload = function () {
             Obstacle.rectangle(12, 7, 14, 9),
             Obstacle.rectangle(10, 10, 13, 11),
             new Obstacle([
-                new Vector(0, 5),
-                new Vector(0, 0),
-                new Vector(16, 0),
-                new Vector(16, 13),
-                new Vector(9, 13),
-                new Vector(9, 13.5),
-                new Vector(16.5, 13.5),
-                new Vector(16.5, -.5),
+                new Vector(-.5, 5),
                 new Vector(-.5, -.5),
-                new Vector(-.5, 5)
+                new Vector(16.5, -.5),
+                new Vector(16.5, 13.5),
+                new Vector(9, 13.5),
+                new Vector(9, 13),
+                new Vector(16, 13),
+                new Vector(16, 0),
+                new Vector(0, 0),
+                new Vector(0, 5),
             ]),
             new Obstacle([
-                new Vector(7, 13),
-                new Vector(0, 13),
                 new Vector(0, 7),
-                new Vector(-.5, 7),
-                new Vector(-.5, 13.5),
+                new Vector(0, 13),
+                new Vector(7, 13),
                 new Vector(7, 13.5),
+                new Vector(-.5, 13.5),
+                new Vector(-.5, 7),
             ]),
         ],
     );
