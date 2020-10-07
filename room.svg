@@ -2,9 +2,9 @@
 <!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
 <svg width="100%" height="100%" viewBox="0 0 1200 800" version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" xml:space="preserve" xmlns:serif="http://www.serif.com/" style="fill-rule:evenodd;clip-rule:evenodd;stroke-linecap:round;stroke-linejoin:round;stroke-miterlimit:1.5;">
     <g id="Obstacles">
-        <path d="M60,60L1140,60L1140,740L900,740L900,720L1120,720L1120,80L80,80L80,300L60,300L60,60" style="fill:none;stroke:black;stroke-width:1px;"/>
-        <path d="M60,400L80,400L80,720L800,720L800,740L60,740L60,400Z" style="fill:none;stroke:black;stroke-width:1px;"/>
         <rect x="200" y="140" width="100" height="160" style="fill:none;stroke:black;stroke-width:4.17px;"/>
+        <path d="M60,300L80,300L80,80L1120,80L1120,720L900,720L900,740L1140,740L1140,60L60,60L60,300Z" style="fill:none;stroke:black;stroke-width:4.17px;"/>
+        <path d="M80,400L60,400L60,740L800,740L800,720L80,720L80,400Z" style="fill:none;stroke:black;stroke-width:4.17px;"/>
         <rect x="400" y="140" width="200" height="160" style="fill:none;stroke:black;stroke-width:4.17px;"/>
         <rect x="200" y="360" width="100" height="140" style="fill:none;stroke:black;stroke-width:4.17px;"/>
         <rect x="400" y="400" width="300" height="100" style="fill:none;stroke:black;stroke-width:4.17px;"/>
