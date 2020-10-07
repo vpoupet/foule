@@ -5,6 +5,7 @@ const scale = 50;
 const shiftX = 1;
 const shiftY = 1;
 const agentRadius = .3;
+const epsilon = .001;
 let room;
 
 
@@ -18,7 +19,7 @@ class Vector {
         return new Vector(this.x + other.x, this.y + other.y);
     }
 
-    sub(other) {
+    subtract(other) {
         return new Vector(this.x - other.x, this.y - other.y);
     }
 
@@ -43,11 +44,11 @@ class Vector {
     }
 
     distanceTo(other) {
-        return other.sub(this).norm();
+        return other.subtract(this).norm();
     }
 
     squareDistanceTo(other) {
-        return other.sub(this).squareNorm();
+        return other.subtract(this).squareNorm();
     }
 
     orth() {
@@ -78,15 +79,15 @@ class Vector {
  * @returns {boolean} true if segments [p1p2] and [p3p4] intersect
  */
 function segmentsIntersect(p1, p2, p3, p4) {
-    const normal1 = p2.sub(p1).orth();
-    const normal2 = p4.sub(p3).orth();
+    const normal1 = p2.subtract(p1).orth();
+    const normal2 = p4.subtract(p3).orth();
 
-    if ((p3.sub(p1).dot(normal1) * p4.sub(p1).dot(normal1) <= 0) &&
-        (p1.sub(p3).dot(normal2) * p2.sub(p3).dot(normal2) <= 0)) {
+    if ((p3.subtract(p1).dot(normal1) * p4.subtract(p1).dot(normal1) <= 0) &&
+        (p1.subtract(p3).dot(normal2) * p2.subtract(p3).dot(normal2) <= 0)) {
         // projection of [p3p4] along [p1p2] contains 0 and
         // projection of [p1p2] along [p3p4] contains 0
-        if (p2.sub(p1).det(p3.sub(p1)) === 0 &&
-            p2.sub(p1).det(p4.sub(p1)) === 0) {
+        if (p2.subtract(p1).det(p3.subtract(p1)) === 0 &&
+            p2.subtract(p1).det(p4.subtract(p1)) === 0) {
             // all 4 points are aligned
             return Math.max(p1.x, p2.x) >= Math.min(p3.x, p4.x) &&
                 Math.max(p3.x, p4.x) >= Math.min(p1.x, p2.x) &&
@@ -100,7 +101,7 @@ function segmentsIntersect(p1, p2, p3, p4) {
 
 
 function getCircleContactAlongVector(p1, p2, v, d) {
-    const v2 = p2.sub(p1);
+    const v2 = p2.subtract(p1);
     const v2Normal = Math.abs(v2.dot(v.orth()));
     if (v2Normal > d) return Infinity;
     const v2Parallel = v2.dot(v);
@@ -176,9 +177,9 @@ class Obstacle {
     canGoFromTowards(vertex, targetPoint) {
         const i = this.vertices.indexOf(vertex);
         const n = this.vertices.length;
-        const normal1 = vertex.sub(this.vertices[(i + n - 1) % n]).orth();
-        const normal2 = this.vertices[(i + 1) % n].sub(vertex).orth();
-        return targetPoint.sub(vertex).dot(normal1) >= 0 || targetPoint.sub(vertex).dot(normal2) >= 0;
+        const normal1 = vertex.subtract(this.vertices[(i + n - 1) % n]).orth();
+        const normal2 = this.vertices[(i + 1) % n].subtract(vertex).orth();
+        return targetPoint.subtract(vertex).dot(normal1) >= 0 || targetPoint.subtract(vertex).dot(normal2) >= 0;
     }
 
     draw(ctx) {
@@ -202,10 +203,10 @@ class Door {
     }
 
     targetFromPoint(p) {
-        const vector = this.p2.sub(this.p1);
+        const vector = this.p2.subtract(this.p1);
         const norm = vector.norm();
         const normalizedVector = vector.normalize();
-        const l = p.sub(this.p1).dot(normalizedVector);
+        const l = p.subtract(this.p1).dot(normalizedVector);
 
         if (l <= 0) return this.p1;
         else if (l >= norm) return this.p2;
@@ -213,7 +214,7 @@ class Door {
     }
 
     draw(ctx) {
-        const normal = this.p2.sub(this.p1).orth().normalize();
+        const normal = this.p2.subtract(this.p1).orth().normalize();
         ctx.beginPath();
         ctx.moveTo(this.p1.x, this.p1.y);
         let p = this.p2;
@@ -378,7 +379,7 @@ class Room {
                 const p = new Vector(x, y);
                 const target = this.targetFromPoint(p);
                 if (target !== undefined) {
-                    const pt = p.add(target.sub(p).normalize().mult(.2));
+                    const pt = p.add(target.subtract(p).normalize().mult(.2));
                     ctx.moveTo(x, y);
                     ctx.lineTo(pt.x, pt.y);
                 }
@@ -410,7 +411,7 @@ class Room {
 
         if (this.isRunning) {
             for (const agent of this.agents) {
-                agent.update(deltaTime, this);
+                Agent.update.bind(agent)(deltaTime, this);
             }
         }
 
@@ -422,25 +423,64 @@ class Room {
 
 
 class Agent {
+    static update = Agent.simpleUpdate;
+
     constructor(position, speed) {
         this.position = position;
         this.speed = speed;
     }
 
-    update(deltaTime, room) {
-        let remainingMovement = this.speed * deltaTime;
-        while (remainingMovement > 0) {
-            let target = room.targetFromPoint(this.position);
-            if (target === undefined) { // no path to exit (or already reached exit)
-                room.agents.delete(this);
-                return;
+    static simpleUpdate(deltaTime, room) {
+        let target = room.targetFromPoint(this.position);
+        if (target === undefined) {
+            // no path to exit (or already reached exit)
+            room.agents.delete(this);
+            return;
+        }
+
+        const moveDistance = this.speed * deltaTime;
+        if (this.position.distanceTo(target) <= moveDistance) {
+            this.position = target;
+        } else {
+            const moveDirection = target.subtract(this.position).normalize();
+            this.position = this.position.add(moveDirection.mult(moveDistance));
+        }
+    }
+
+    static updateWithSimpleCollision(deltaTime, room) {
+        let target = room.targetFromPoint(this.position);
+        if (target === undefined) {
+            // no path to exit (or already reached exit)
+            room.agents.delete(this);
+            return;
+        }
+
+        let moveDistance = this.speed * deltaTime;
+        const moveDirection = target.subtract(this.position).normalize();
+        let squareNeighborhood = moveDistance + 2 * agentRadius;
+        squareNeighborhood *= squareNeighborhood;
+
+        // check for collisions with other agents
+        for (const otherAgent of room.agents) {
+            if (otherAgent === this ||
+                this.position.squareDistanceTo(otherAgent.position) > squareNeighborhood) {
+                // no possible collision
+                continue;
             }
-
-            let moveDistance = Math.min(remainingMovement, this.position.distanceTo(target));
-            remainingMovement -= moveDistance;
-            const v = target.sub(this.position).normalize();
-
-            this.position = this.position.add(v.mult(moveDistance));
+            const u2 = otherAgent.position.subtract(this.position);
+            const u2Normal = Math.abs(u2.dot(moveDirection.orth()));
+            if (u2Normal > 2 * agentRadius) continue;
+            const u2Parallel = u2.dot(moveDirection);
+            if (u2Parallel < 0) continue;
+            const collisionDistance = u2Parallel - Math.sqrt(4 * agentRadius * agentRadius - u2Normal * u2Normal);
+            if (collisionDistance < moveDistance) {
+                moveDistance = collisionDistance;
+            }
+        }
+        if (this.position.distanceTo(target) <= moveDistance) {
+            this.position = target;
+        } else {
+            this.position = this.position.add(moveDirection.mult(moveDistance));
         }
     }
 
@@ -448,47 +488,6 @@ class Agent {
         context.beginPath();
         context.arc(this.position.x, this.position.y, agentRadius, 0, 2 * Math.PI);
         context.fill();
-    }
-}
-
-
-class SimpleCollisionAgent extends Agent {
-    update(deltaTime, room) {
-        let remainingMovement = this.speed * deltaTime;
-        while (remainingMovement > 0) {
-            let target = room.targetFromPoint(this.position);
-            if (target === undefined) { // no path to exit (or already reached exit)
-                room.agents.delete(this);
-                return;
-            }
-
-            let moveDistance = Math.min(remainingMovement, this.position.distanceTo(target));
-            remainingMovement -= moveDistance;
-
-            const v = target.sub(this.position).normalize();
-            let squareNeighborhood = moveDistance + 2 * agentRadius;
-            squareNeighborhood *= squareNeighborhood;
-
-            // check for collisions with other agents
-            for (const otherAgent of room.agents) {
-                if (otherAgent === this ||
-                    this.position.squareDistanceTo(otherAgent.position) > squareNeighborhood) {
-                    // no collision
-                    continue;
-                }
-                const u2 = otherAgent.position.sub(this.position);
-                const u2Normal = Math.abs(u2.dot(v.orth()));
-                if (u2Normal > 2 * agentRadius) continue;
-                const u2Parallel = u2.dot(v);
-                if (u2Parallel < 0) continue;
-                const collisionDistance = u2Parallel - Math.sqrt(4 * agentRadius * agentRadius - u2Normal * u2Normal);
-                if (collisionDistance < moveDistance) {
-                    moveDistance = collisionDistance;
-                    remainingMovement = 0;
-                }
-            }
-            this.position = this.position.add(v.mult(moveDistance));
-        }
     }
 }
 
@@ -517,34 +516,16 @@ window.onload = function () {
     });
 
     canvas.addEventListener("click", event => {
-        let collisionType;
-        const collisionSelect = document.getElementsByName('collision-select');
-        for (const select of collisionSelect) {
-            if (select.checked) {
-                collisionType = select.value;
-                break;
-            }
-        }
-
         const rect = document.getElementById("canvas").getBoundingClientRect();
         const x = (event.clientX - rect.left) / scale - shiftX;
         const y = (event.clientY - rect.top) / scale - shiftY;
-        switch (collisionType) {
-            case "none":
-                room.agents.add(new Agent(new Vector(x, y), .001));
-                break;
-            case "simple":
-                room.agents.add(new SimpleCollisionAgent(new Vector(x, y), .001));
-                break;
-            default:
-                break;
-        }
+        room.agents.add(new Agent(new Vector(x, y), .001));
     });
 
     room = new Room(
         [
-            new Door(new Vector(0, 7), new Vector(0, 5)),
-            new Door(new Vector(9, 13), new Vector(7, 13)),
+            new Door(new Vector(-2, -2), new Vector(-2, 16)),
+            new Door(new Vector(-2, 16), new Vector(18, 16)),
         ],
         [
             Obstacle.rectangle(2, 2, 4, 5),
@@ -580,4 +561,17 @@ window.onload = function () {
 
     lastUpdate = Date.now();
     requestAnimationFrame(room.update.bind(room));
+}
+
+function selectStrategy(element) {
+    switch (element.value) {
+        case "none":
+            Agent.update = Agent.simpleUpdate;
+            break;
+        case "simple":
+            Agent.update = Agent.updateWithSimpleCollision;
+            break;
+        default:
+            break;
+    }
 }
