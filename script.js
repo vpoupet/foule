@@ -1,12 +1,9 @@
 let lastUpdate;
 let canvas;
 let context;
-const scale = 50;
-const shiftX = 1;
-const shiftY = 1;
-const agentRadius = .3;
-const epsilon = .001;
 let room;
+const agentRadius = 15;
+const epsilon = .001;
 
 
 class Vector {
@@ -15,50 +12,125 @@ class Vector {
         this.y = y;
     }
 
+    /**
+     * Vector addition
+     *
+     * @param {Vector} other
+     * @returns {Vector}
+     */
     add(other) {
         return new Vector(this.x + other.x, this.y + other.y);
     }
 
+    /**
+     * Vector subtraction
+     *
+     * @param {Vector} other
+     * @returns {Vector}
+     */
     subtract(other) {
         return new Vector(this.x - other.x, this.y - other.y);
     }
 
+    /**
+     * Scalar multiplication
+     *
+     * @param {number} s
+     * @returns {Vector}
+     */
     mult(s) {
         return new Vector(this.x * s, this.y * s);
     }
 
+    /**
+     * Dot product
+     *
+     * @param {Vector} other
+     * @returns {number}
+     */
     dot(other) {
         return this.x * other.x + this.y * other.y;
     }
 
+    /**
+     * Returns the determinant of the matrix
+     * |xa xb|
+     * |ya yb|
+     * where (xa, ya) is `this` and (xb, yb) is `other`
+     * (this is also the z-coordinate of the cross product of the two vectors)
+     *
+     * @param {Vector} other
+     * @returns {number}
+     */
     det(other) {
         return this.x * other.y - other.x * this.y;
     }
 
+    /**
+     * The square of the norm of the vector
+     *
+     * @returns {number}
+     */
     squareNorm() {
         return this.x * this.x + this.y * this.y;
     }
 
+    /**
+     * The norm of the Vector
+     *
+     * @returns {number}
+     */
     norm() {
         return Math.sqrt(this.squareNorm());
     }
 
+    /**
+     * Distance from `this` to `other` (norm of the difference)
+     *
+     * @param {Vector} other
+     * @returns {number}
+     */
     distanceTo(other) {
         return other.subtract(this).norm();
     }
 
+    /**
+     * Square of the distance from `this` to `other`
+     *
+     * @param {Vector} other
+     * @returns {number}
+     */
     squareDistanceTo(other) {
         return other.subtract(this).squareNorm();
     }
 
+    /**
+     * Returns the vector orthogonal to `this`, of same length and pointing to the right of `this`
+     * (it points to the left in a traditional coordinates system but to the right in an "SVG"-compatible coordinates
+     * system, with x pointing right and y pointing down)
+     *
+     * @returns {Vector}
+     */
     orth() {
-        return new Vector(this.y, -this.x);
+        return new Vector(-this.y, this.x);
     }
 
+    /**
+     * Returns true if `this` and `other` have same coordinates
+     *
+     * @param {Vector} other
+     * @returns {boolean}
+     */
     equals(other) {
         return this.x === other.x && this.y === other.y;
     }
 
+    /**
+     * Returns a normalized vector (length 1) of same orientation as `this` is `this` is not of length 0.
+     * If `this` is the zero vector, it returns a copy of `this`.
+     *
+     * @returns {Vector}
+     */
     normalize() {
         const n = this.norm();
         if (n !== 0) {
@@ -67,7 +139,58 @@ class Vector {
             return new Vector();
         }
     }
+
+    distanceToCircleAlongVector(center, radius, direction) {
+        if (center.subtract(this).dot(direction) <= 0) {
+            // moving away from the circle
+            return Infinity;
+        }
+        if (this.distanceTo(center) <= radius) {
+            // this is already in the circle
+            return 0;
+        }
+
+        const u = center.subtract(this);
+        const uNormal = u.dot(direction.orth());
+        if (uNormal > radius) return Infinity; // trajectory of this never touches the circle
+        const uParallel = u.dot(direction);
+        if (uParallel < 0) return Infinity; // this is moving away from the circle
+        return uParallel - Math.sqrt(radius * radius - uNormal * uNormal);
+    }
+
+    distanceToSegmentAlongVector(pointA, pointB, direction) {
+        const numerator = pointB.subtract(pointA).det(this.subtract(pointA));
+        const denominator = direction.det(pointB.subtract(pointA));
+        if (numerator === 0) {
+            // pointA, pointB and this are aligned
+            if (Math.min(pointA.x, pointB.x) <= this.x &&
+                this.x <= Math.max(pointA.x, pointB.x) &&
+                Math.min(pointA.y, pointB.y) <= this.y &&
+                this.y <= Math.max(pointA.y, pointB.y)) {
+                // this is already on the segment [AB]
+                return 0;
+            }
+            if (denominator === 0) {
+                // direction is also colinear to the line connecting the points
+                const dim = Math.abs(direction.x) >= Math.abs(direction.y) ? 'x' : 'y';
+                const closestPoint = direction[dim] > 0 ?
+                    Math.min(pointA[dim], pointB[dim]) :
+                    Math.max(pointA[dim], pointB[dim]);
+                const d = (Math.min(pointA[dim], pointB[dim]) - this[dim]) / direction[dim];
+                return d > 0 ? d : Infinity;
+            } else {
+                return Infinity;
+            }
+        }
+        if (pointA.subtract(this).det(direction) * pointB.subtract(this).det(direction) <= 0) {
+            // trajectory of this intersects the segment [AB]
+            const d = numerator / denominator;
+            return d >= 0 ? d : Infinity;
+        }
+        return Infinity;
+    }
 }
+
 
 /**
  * Returns whether two segments intersect
@@ -79,11 +202,11 @@ class Vector {
  * @returns {boolean} true if segments [p1p2] and [p3p4] intersect
  */
 function segmentsIntersect(p1, p2, p3, p4) {
-    const normal1 = p2.subtract(p1).orth();
-    const normal2 = p4.subtract(p3).orth();
+    const v12 = p2.subtract(p1);
+    const v34 = p4.subtract(p3);
 
-    if ((p3.subtract(p1).dot(normal1) * p4.subtract(p1).dot(normal1) <= 0) &&
-        (p1.subtract(p3).dot(normal2) * p2.subtract(p3).dot(normal2) <= 0)) {
+    if ((p3.subtract(p1).det(v12) * p4.subtract(p1).det(v12) <= 0) &&
+        (p1.subtract(p3).det(v34) * p2.subtract(p3).det(v34) <= 0)) {
         // projection of [p3p4] along [p1p2] contains 0 and
         // projection of [p1p2] along [p3p4] contains 0
         if (p2.subtract(p1).det(p3.subtract(p1)) === 0 &&
@@ -102,7 +225,7 @@ function segmentsIntersect(p1, p2, p3, p4) {
 
 function getCircleContactAlongVector(p1, p2, v, d) {
     const v2 = p2.subtract(p1);
-    const v2Normal = Math.abs(v2.dot(v.orth()));
+    const v2Normal = Math.abs(v2.det(v));
     if (v2Normal > d) return Infinity;
     const v2Parallel = v2.dot(v);
     if (v2Parallel < 0) return Infinity;
@@ -114,7 +237,7 @@ class ObstacleVertex extends Vector {
         super(x, y);
         this.obstacle = obstacle;
         this.neighbors = [];
-        this.target = undefined;    // vector towards which to move next (ObstacleVertex or Door point)
+        this.target = undefined;    // vector towards which to move next (ObstacleVertex or Exit point)
         this.distanceToExit = Infinity;
     }
 
@@ -196,7 +319,7 @@ class Obstacle {
     }
 }
 
-class Door {
+class Exit {
     constructor(p1, p2) {
         this.p1 = p1;
         this.p2 = p2;
@@ -212,27 +335,17 @@ class Door {
         else if (l >= norm) return this.p2;
         else return this.p1.add(normalizedVector.mult(l));
     }
-
-    draw(ctx) {
-        const normal = this.p2.subtract(this.p1).orth().normalize();
-        ctx.beginPath();
-        ctx.moveTo(this.p1.x, this.p1.y);
-        let p = this.p2;
-        ctx.lineTo(p.x, p.y);
-        p = this.p2.add(normal.mult(.5));
-        ctx.lineTo(p.x, p.y);
-        p = this.p1.add(normal.mult(.5));
-        ctx.lineTo(p.x, p.y);
-        ctx.closePath();
-        ctx.fill();
-        ctx.stroke();
-    }
 }
 
 class Room {
-    constructor(doors, obstacles) {
-        this.doors = doors;
+    constructor(width, height, obstacles) {
         this.obstacles = obstacles;
+        this.exits = [
+            new Exit(new Vector(0, 0), new Vector(width, 0)),
+            new Exit(new Vector(0, 0), new Vector(0, height)),
+            new Exit(new Vector(0, height), new Vector(width, height)),
+            new Exit(new Vector(width, 0), new Vector(width, height)),
+        ];
         this.agents = new Set();
         this.isRunning = false;
 
@@ -250,8 +363,8 @@ class Room {
         // Compute distance to exit for each vertex
         for (const vertex of vertices) {
             let didUpdate = false;
-            for (const door of this.doors) {
-                const target = door.targetFromPoint(vertex);
+            for (const exit of this.exits) {
+                const target = exit.targetFromPoint(vertex);
                 if (this.canConnect(vertex, target)) {
                     const d = vertex.distanceTo(target);
                     if (d < vertex.distanceToExit) {
@@ -311,8 +424,8 @@ class Room {
         let distance = Infinity;
         let target = undefined;
 
-        for (const door of this.doors) {
-            let t = door.targetFromPoint(point);
+        for (const exit of this.exits) {
+            let t = exit.targetFromPoint(point);
             if (this.canConnect(point, t)) {
                 const d = point.distanceTo(t);
                 if (d === 0) return undefined;
@@ -342,19 +455,9 @@ class Room {
 
     draw(ctx) {
         ctx.save();
-        context.scale(scale, scale);
-        context.translate(shiftX, shiftY);
-
-        // draw doors
-        ctx.lineWidth = .05;
-        ctx.strokeStyle = "#ff0000";
-        ctx.fillStyle = "#ffaaaa";
-        for (const door of this.doors) {
-            door.draw(ctx);
-        }
 
         // draw obstacles
-        ctx.lineWidth = .05;
+        ctx.lineWidth = 1;
         ctx.strokeStyle = "#000000";
         ctx.fillStyle = "#aaaaaa";
         for (const obstacle of this.obstacles) {
@@ -369,29 +472,9 @@ class Room {
         ctx.restore();
     }
 
-    drawVectors(ctx) {
-        ctx.save();
-        ctx.lineWidth = .02;
-        ctx.strokeStyle = "#888888";
-        ctx.beginPath();
-        for (let x = 0; x < 20; x += .2) {
-            for (let y = 0; y < 15; y += .2) {
-                const p = new Vector(x, y);
-                const target = this.targetFromPoint(p);
-                if (target !== undefined) {
-                    const pt = p.add(target.subtract(p).normalize().mult(.2));
-                    ctx.moveTo(x, y);
-                    ctx.lineTo(pt.x, pt.y);
-                }
-            }
-        }
-        ctx.stroke();
-        ctx.restore();
-    }
-
     drawTrajectoryFromPoint(point, ctx) {
         ctx.save();
-        ctx.lineWidth = .2;
+        ctx.lineWidth = 1;
         ctx.strokeStyle = "#00ff00";
         ctx.beginPath();
         ctx.moveTo(point.x, point.y);
@@ -411,7 +494,7 @@ class Room {
 
         if (this.isRunning) {
             for (const agent of this.agents) {
-                Agent.update.bind(agent)(deltaTime, this);
+                Agent.update.call(agent, deltaTime, this);
             }
         }
 
@@ -484,6 +567,70 @@ class Agent {
         }
     }
 
+    static updateWithSimpleDeviation(deltaTime, room) {
+        let target = room.targetFromPoint(this.position);
+        if (target === undefined) {
+            // no path to exit (or already reached exit)
+            room.agents.delete(this);
+            return;
+        }
+        let moveDistance = this.speed * deltaTime;
+        let moveDirection = target.subtract(this.position).normalize();
+
+        let contactAgents = [];
+        for (const otherAgent of room.agents) {
+            if (this.position.distanceTo(otherAgent.position) < 2 * agentRadius + epsilon) {
+                contactAgents.push(otherAgent);
+            }
+        }
+
+        let maxDeviationFactor = 0;
+        let maxDeviation = moveDirection;
+        for (const otherAgent of contactAgents) {
+            let directionFromOther = this.position.sub(otherAgent.position).normalize()
+            let factor = directionFromOther.dot(moveDirection);
+            if (factor < maxDeviationFactor) {
+                maxDeviationFactor = factor;
+                maxDeviation = directionFromOther.orth();
+                if (maxDeviation.dot(moveDirection) < 0) {
+                    maxDeviation = maxDeviation.mult(-1);
+                }
+            }
+        }
+        moveDirection = maxDeviation;
+
+        let squareNeighborhood = moveDistance + 2 * agentRadius;
+        squareNeighborhood *= squareNeighborhood;
+
+        // check for collisions with other agents
+        for (const otherAgent of room.agents) {
+            if (otherAgent === this ||
+                contactAgents.includes(otherAgent) ||
+                this.position.squareDistanceTo(otherAgent.position) > squareNeighborhood) {
+                // no possible collision
+                continue;
+            }
+            const u2 = otherAgent.position.subtract(this.position);
+            const u2Normal = Math.abs(u2.dot(moveDirection.orth()));
+            if (u2Normal > 2 * agentRadius) continue;
+            const u2Parallel = u2.dot(moveDirection);
+            if (u2Parallel < 0) continue;
+            const collisionDistance = u2Parallel - Math.sqrt(4 * agentRadius * agentRadius - u2Normal * u2Normal);
+            if (collisionDistance < moveDistance) {
+                moveDistance = collisionDistance;
+            }
+        }
+        if (this.position.distanceTo(target) <= moveDistance) {
+            this.position = target;
+        } else {
+            this.position = this.position.add(moveDirection.mult(moveDistance));
+        }
+    }
+
+    moveTo(target) {
+
+    }
+
     draw(context) {
         context.beginPath();
         context.arc(this.position.x, this.position.y, agentRadius, 0, 2 * Math.PI);
@@ -494,8 +641,8 @@ class Agent {
 
 window.onload = function () {
     canvas = document.getElementById("canvas");
-    canvas.width = 1000;
-    canvas.height = 750;
+    canvas.width = 1200;
+    canvas.height = 800;
     context = canvas.getContext("2d");
 
     let startButton = document.getElementById("start-button");
@@ -517,47 +664,10 @@ window.onload = function () {
 
     canvas.addEventListener("click", event => {
         const rect = document.getElementById("canvas").getBoundingClientRect();
-        const x = (event.clientX - rect.left) / scale - shiftX;
-        const y = (event.clientY - rect.top) / scale - shiftY;
-        room.agents.add(new Agent(new Vector(x, y), .001));
+        const x = (event.clientX - rect.left);
+        const y = (event.clientY - rect.top);
+        room.agents.add(new Agent(new Vector(x, y), .1));
     });
-
-    room = new Room(
-        [
-            new Door(new Vector(-2, -2), new Vector(-2, 16)),
-            new Door(new Vector(-2, 16), new Vector(18, 16)),
-        ],
-        [
-            Obstacle.rectangle(2, 2, 4, 5),
-            Obstacle.rectangle(3, 7, 6, 10),
-            Obstacle.rectangle(6, 3, 9, 5),
-            Obstacle.rectangle(6, 1, 9, 2),
-            Obstacle.rectangle(11, 2, 14, 6),
-            Obstacle.rectangle(9, 7, 11, 9),
-            Obstacle.rectangle(12, 7, 14, 9),
-            Obstacle.rectangle(10, 10, 13, 11),
-            new Obstacle([
-                new Vector(-.5, 5),
-                new Vector(-.5, -.5),
-                new Vector(16.5, -.5),
-                new Vector(16.5, 13.5),
-                new Vector(9, 13.5),
-                new Vector(9, 13),
-                new Vector(16, 13),
-                new Vector(16, 0),
-                new Vector(0, 0),
-                new Vector(0, 5),
-            ]),
-            new Obstacle([
-                new Vector(0, 7),
-                new Vector(0, 13),
-                new Vector(7, 13),
-                new Vector(7, 13.5),
-                new Vector(-.5, 13.5),
-                new Vector(-.5, 7),
-            ]),
-        ],
-    );
 
     lastUpdate = Date.now();
     requestAnimationFrame(room.update.bind(room));
