@@ -158,36 +158,35 @@ class Vector {
         return uParallel - Math.sqrt(radius * radius - uNormal * uNormal);
     }
 
+    /**
+     *
+     * @param {Vector} pointA start extremity of segment
+     * @param {Vector} pointB end extremity of segment
+     * @param {Vector} direction normal vector representing the direction of movement from `this`
+     * @returns {number}
+     */
     distanceToSegmentAlongVector(pointA, pointB, direction) {
-        const numerator = pointB.subtract(pointA).det(this.subtract(pointA));
-        const denominator = direction.det(pointB.subtract(pointA));
-        if (numerator === 0) {
-            // pointA, pointB and this are aligned
-            if (Math.min(pointA.x, pointB.x) <= this.x &&
-                this.x <= Math.max(pointA.x, pointB.x) &&
-                Math.min(pointA.y, pointB.y) <= this.y &&
-                this.y <= Math.max(pointA.y, pointB.y)) {
-                // this is already on the segment [AB]
-                return 0;
-            }
-            if (denominator === 0) {
-                // direction is also colinear to the line connecting the points
-                const dim = Math.abs(direction.x) >= Math.abs(direction.y) ? 'x' : 'y';
-                const closestPoint = direction[dim] > 0 ?
-                    Math.min(pointA[dim], pointB[dim]) :
-                    Math.max(pointA[dim], pointB[dim]);
-                const d = (Math.min(pointA[dim], pointB[dim]) - this[dim]) / direction[dim];
-                return d > 0 ? d : Infinity;
-            } else {
-                return Infinity;
-            }
+        const vAB = pointB.subtract(pointA);
+        const vAP = this.subtract(pointA);
+        const vBP = this.subtract(pointB);
+
+        const denominator = vAB.det(direction);
+        if (denominator >= 0) {
+            // direction is moving away from the segment (in the direction of the normal)
+            return Infinity;
         }
-        if (pointA.subtract(this).det(direction) * pointB.subtract(this).det(direction) <= 0) {
+        const numerator = vAP.det(vAB);
+        if (direction.det(vAP) * direction.det(vBP) <= 0) {
             // trajectory of this intersects the segment [AB]
             const d = numerator / denominator;
             return d >= 0 ? d : Infinity;
         }
         return Infinity;
+    }
+
+    angleTo(v) {
+        let angle = Math.atan2(v.y, v.x) - Math.atan2(this.y, this.x);
+        return angle < 0 ? angle + 2 * Math.PI : angle;
     }
 }
 
@@ -223,19 +222,9 @@ function segmentsIntersect(p1, p2, p3, p4) {
 }
 
 
-function getCircleContactAlongVector(p1, p2, v, d) {
-    const v2 = p2.subtract(p1);
-    const v2Normal = Math.abs(v2.det(v));
-    if (v2Normal > d) return Infinity;
-    const v2Parallel = v2.dot(v);
-    if (v2Parallel < 0) return Infinity;
-    return v2Parallel - Math.sqrt(d * d - v2Normal * v2Normal);
-}
-
 class ObstacleVertex extends Vector {
-    constructor(x, y, obstacle) {
+    constructor(x, y) {
         super(x, y);
-        this.obstacle = obstacle;
         this.neighbors = [];
         this.target = undefined;    // vector towards which to move next (ObstacleVertex or Exit point)
         this.distanceToExit = Infinity;
@@ -263,31 +252,19 @@ class ObstacleVertex extends Vector {
  * Represents a (non-crossing) polygonal-shaped obstacle
  */
 class Obstacle {
-    constructor(vertices, isClosed = true) {
+    constructor(vertices) {
         /**
          * List of vertices
          * @type {ObstacleVertex[]}
          */
-        this.vertices = vertices.map(v => new ObstacleVertex(v.x, v.y, this));
-        this.isClosed = isClosed;
+        this.vertices = vertices.map(v => new ObstacleVertex(v.x, v.y));
     }
 
     * segments() {
         for (let i = 0; i < this.vertices.length - 1; i++) {
             yield [this.vertices[i], this.vertices[i + 1]];
         }
-        if (this.isClosed) {
-            yield [this.vertices[this.vertices.length - 1], this.vertices[0]];
-        }
-    }
-
-    static rectangle(x1, y1, x2, y2) {
-        return new Obstacle([
-            new Vector(x1, y1),
-            new Vector(x2, y1),
-            new Vector(x2, y2),
-            new Vector(x1, y2),
-        ]);
+        yield [this.vertices[this.vertices.length - 1], this.vertices[0]];
     }
 
     /**
@@ -298,11 +275,33 @@ class Obstacle {
      * @returns {boolean}
      */
     canGoFromTowards(vertex, targetPoint) {
+        const direction = targetPoint.subtract(vertex);
+
         const i = this.vertices.indexOf(vertex);
         const n = this.vertices.length;
         const normal1 = vertex.subtract(this.vertices[(i + n - 1) % n]).orth();
         const normal2 = this.vertices[(i + 1) % n].subtract(vertex).orth();
         return targetPoint.subtract(vertex).dot(normal1) >= 0 || targetPoint.subtract(vertex).dot(normal2) >= 0;
+    }
+
+    distanceFromPointAlongVector(point, direction) {
+        let distance = Infinity;
+        for (const [pointA, pointB] of this.segments()) {
+            let d = point.distanceToSegmentAlongVector(pointA, pointB, direction);
+            if (d === 0) {
+                let vertex;
+                if (point.equals(pointA)) vertex = pointA;
+                if (point.equals(pointB)) vertex = pointB;
+                if (vertex !== undefined) {
+                    const i = this.vertices.indexOf(vertex);
+                    const n = this.vertices.length;
+                    if (vertex.subtract(this.vertices[(i + n - 1) % n]).det(direction) >= 0) d = Infinity;
+                    if (this.vertices[(i + 1) % n].subtract(vertex).det(direction) >= 0) d = Infinity;
+                }
+            }
+            if (d < distance) distance = d;
+        }
+        return distance;
     }
 
     draw(ctx) {
@@ -311,9 +310,7 @@ class Obstacle {
         for (let i = 1; i < this.vertices.length; i++) {
             ctx.lineTo(this.vertices[i].x, this.vertices[i].y);
         }
-        if (this.isClosed) {
-            ctx.closePath();
-        }
+        ctx.closePath();
         ctx.fill();
         ctx.stroke();
     }
@@ -401,16 +398,15 @@ class Room {
                     segmentsIntersect(point1, point2, segment[0], segment[1])) {
                     return false;
                 }
-                if (obstacle.isClosed) {
-                    if (point1.equals(segment[0]) &&
-                        !obstacle.canGoFromTowards(segment[0], point2)) return false;
-                    if (point1.equals(segment[1]) &&
-                        !obstacle.canGoFromTowards(segment[1], point2)) return false;
-                    if (point2.equals(segment[0]) &&
-                        !obstacle.canGoFromTowards(segment[0], point1)) return false;
-                    if (point2.equals(segment[1]) &&
-                        !obstacle.canGoFromTowards(segment[1], point1)) return false;
-                }
+
+                if (point1.equals(segment[0]) &&
+                    !obstacle.canGoFromTowards(segment[0], point2)) return false;
+                if (point1.equals(segment[1]) &&
+                    !obstacle.canGoFromTowards(segment[1], point2)) return false;
+                if (point2.equals(segment[0]) &&
+                    !obstacle.canGoFromTowards(segment[0], point1)) return false;
+                if (point2.equals(segment[1]) &&
+                    !obstacle.canGoFromTowards(segment[1], point1)) return false;
             }
         }
         return true;
