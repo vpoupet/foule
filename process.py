@@ -22,6 +22,8 @@ def vertices_from_path(d):
             elif command == 'h':
                 x += arguments[0]
             vertices.append((x, y))
+    if vertices[0] == vertices[-1]:
+        vertices.pop()
     return vertices
 
 

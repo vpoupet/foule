@@ -4,7 +4,7 @@ let context;
 let room;
 const agentRadius = 15;
 const epsilon = .001;
-
+let shouldDrawNeighbors = false;
 
 class Vector {
     constructor(x = 0, y = 0) {
@@ -184,41 +184,15 @@ class Vector {
         return Infinity;
     }
 
-    angleTo(v) {
-        let angle = Math.atan2(v.y, v.x) - Math.atan2(this.y, this.x);
+    /**
+     * Returns the angle in radians (in an interval from 0 to 2PI) between `this` and `other`
+     * @param {Vector} other
+     * @returns {number}
+     */
+    angleTo(other) {
+        let angle = Math.atan2(other.y, other.x) - Math.atan2(this.y, this.x);
         return angle < 0 ? angle + 2 * Math.PI : angle;
     }
-}
-
-
-/**
- * Returns whether two segments intersect
- *
- * @param p1 origin of first segment
- * @param p2 end of first segment
- * @param p3 origin of second segment
- * @param p4 end of second segment
- * @returns {boolean} true if segments [p1p2] and [p3p4] intersect
- */
-function segmentsIntersect(p1, p2, p3, p4) {
-    const v12 = p2.subtract(p1);
-    const v34 = p4.subtract(p3);
-
-    if ((p3.subtract(p1).det(v12) * p4.subtract(p1).det(v12) <= 0) &&
-        (p1.subtract(p3).det(v34) * p2.subtract(p3).det(v34) <= 0)) {
-        // projection of [p3p4] along [p1p2] contains 0 and
-        // projection of [p1p2] along [p3p4] contains 0
-        if (p2.subtract(p1).det(p3.subtract(p1)) === 0 &&
-            p2.subtract(p1).det(p4.subtract(p1)) === 0) {
-            // all 4 points are aligned
-            return Math.max(p1.x, p2.x) >= Math.min(p3.x, p4.x) &&
-                Math.max(p3.x, p4.x) >= Math.min(p1.x, p2.x) &&
-                Math.max(p1.y, p2.y) >= Math.min(p3.y, p4.y) &&
-                Math.max(p3.y, p4.y) >= Math.min(p1.y, p2.y);
-        }
-        return true;
-    }
-    return false;
 }
 
 
@@ -246,7 +220,17 @@ class ObstacleVertex extends Vector {
             }
         }
     }
+
+    drawNeighbors(ctx) {
+        ctx.beginPath();
+        for (const vertex of this.neighbors) {
+            ctx.moveTo(this.x, this.y);
+            ctx.lineTo(vertex.x, vertex.y);
+        }
+        ctx.stroke();
+    }
 }
+
 
 /**
  * Represents a (non-crossing) polygonal-shaped obstacle
@@ -254,12 +238,21 @@ class ObstacleVertex extends Vector {
 class Obstacle {
     constructor(vertices) {
         /**
-         * List of vertices
+         * Vertices of the obstacle
+         * Vertices should be listed in direct order, so that when considering segments vi = [V_iV_i+1], the normal
+         * vi.orth() is pointing outwards.
+         *
          * @type {ObstacleVertex[]}
          */
         this.vertices = vertices.map(v => new ObstacleVertex(v.x, v.y));
     }
 
+    /**
+     * Returns a generator that enumerates the segments of the obstacle
+     * (each segment is an array of two ObstacleVertex)
+     *
+     * @returns {Generator<ObstacleVertex[]>}
+     */
     * segments() {
         for (let i = 0; i < this.vertices.length - 1; i++) {
             yield [this.vertices[i], this.vertices[i + 1]];
@@ -267,39 +260,25 @@ class Obstacle {
         yield [this.vertices[this.vertices.length - 1], this.vertices[0]];
     }
 
-    /**
-     * Returns true if a line from vertex (a vertex of the obstacle) towards a target point does not immediately move
-     * inside the obstacle (only for closed obstacles)
-     * @param vertex
-     * @param targetPoint
-     * @returns {boolean}
-     */
-    canGoFromTowards(vertex, targetPoint) {
-        const direction = targetPoint.subtract(vertex);
-
-        const i = this.vertices.indexOf(vertex);
-        const n = this.vertices.length;
-        const normal1 = vertex.subtract(this.vertices[(i + n - 1) % n]).orth();
-        const normal2 = this.vertices[(i + 1) % n].subtract(vertex).orth();
-        return targetPoint.subtract(vertex).dot(normal1) >= 0 || targetPoint.subtract(vertex).dot(normal2) >= 0;
-    }
-
     distanceFromPointAlongVector(point, direction) {
         let distance = Infinity;
         for (const [pointA, pointB] of this.segments()) {
-            let d = point.distanceToSegmentAlongVector(pointA, pointB, direction);
-            if (d === 0) {
-                let vertex;
-                if (point.equals(pointA)) vertex = pointA;
-                if (point.equals(pointB)) vertex = pointB;
-                if (vertex !== undefined) {
-                    const i = this.vertices.indexOf(vertex);
-                    const n = this.vertices.length;
-                    if (vertex.subtract(this.vertices[(i + n - 1) % n]).det(direction) >= 0) d = Infinity;
-                    if (this.vertices[(i + 1) % n].subtract(vertex).det(direction) >= 0) d = Infinity;
-                }
+            let vertex;
+            if (point.equals(pointA)) vertex = pointA;
+            if (point.equals(pointB)) vertex = pointB;
+            if (vertex !== undefined) {
+                // point is an extremity of the segment
+                const i = this.vertices.indexOf(vertex);
+                const n = this.vertices.length;
+                const v1 = this.vertices[(i + n - 1) % n].subtract(vertex); // vector vertex -> previous vertex
+                const v2 = this.vertices[(i + 1) % n].subtract(vertex);     // vector vertex -> next vertex
+                if (v2.angleTo(direction) > v2.angleTo(v1) + epsilon) {
+                    // direction is going towards the inside of the obstacle
+                    return 0;
+                }   // else no constraint from this segment
+            } else {
+                distance = Math.min(distance, point.distanceToSegmentAlongVector(pointA, pointB, direction));
             }
-            if (d < distance) distance = d;
         }
         return distance;
     }
@@ -313,8 +292,18 @@ class Obstacle {
         ctx.closePath();
         ctx.fill();
         ctx.stroke();
+
+        if (shouldDrawNeighbors) {
+            ctx.save();
+            ctx.strokeStyle = "#82bade";
+            for (const vertex of this.vertices) {
+                vertex.drawNeighbors(ctx);
+            }
+            ctx.restore();
+        }
     }
 }
+
 
 class Exit {
     constructor(p1, p2) {
@@ -333,6 +322,7 @@ class Exit {
         else return this.p1.add(normalizedVector.mult(l));
     }
 }
+
 
 class Room {
     constructor(width, height, obstacles) {
@@ -389,24 +379,12 @@ class Room {
      * @returns {boolean}
      */
     canConnect(point1, point2) {
-        for (const obstacle of this.obstacles) {
-            for (const segment of obstacle.segments()) {
-                if (!segment[0].equals(point1) &&
-                    !segment[1].equals(point1) &&
-                    !segment[0].equals(point2) &&
-                    !segment[1].equals(point2) &&
-                    segmentsIntersect(point1, point2, segment[0], segment[1])) {
-                    return false;
-                }
+        const dist = point1.distanceTo(point2);
+        const direction = point2.subtract(point1).normalize();
 
-                if (point1.equals(segment[0]) &&
-                    !obstacle.canGoFromTowards(segment[0], point2)) return false;
-                if (point1.equals(segment[1]) &&
-                    !obstacle.canGoFromTowards(segment[1], point2)) return false;
-                if (point2.equals(segment[0]) &&
-                    !obstacle.canGoFromTowards(segment[0], point1)) return false;
-                if (point2.equals(segment[1]) &&
-                    !obstacle.canGoFromTowards(segment[1], point1)) return false;
+        for (const obstacle of this.obstacles) {
+            if (obstacle.distanceFromPointAlongVector(point1, direction) < dist - epsilon) {
+                return false;
             }
         }
         return true;
@@ -680,4 +658,9 @@ function selectStrategy(element) {
         default:
             break;
     }
+}
+
+function toggleNeighbors() {
+    const element = document.getElementById("draw-neighbors");
+    shouldDrawNeighbors = element.checked;
 }
