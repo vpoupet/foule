@@ -1,10 +1,14 @@
+// global variables
 let lastUpdate;
 let canvas;
 let context;
 let room;
+
+// options / settings
 const agentRadius = 15;
 const epsilon = .001;
 let shouldDrawNeighbors = false;
+
 
 class Vector {
     constructor(x = 0, y = 0) {
@@ -140,8 +144,24 @@ class Vector {
         }
     }
 
+    /**
+     * Returns the distance after which a line starting from `this` moving along vector `direction` enters the circle
+     * specified as parameter (center and radius).
+     *
+     * If the line never meets the circle, it returns Infinity. Only the half line going in the orientation of the
+     * vector is considered. If the point is in the circle but moving away from its center, it is considered to be
+     * "escaping" and the function returns Infinity.
+     *
+     * For practical reasons, if the movement direction is "almost" orthogonal to the direction towards the center of
+     * the circle, the point is also considered to be escaping.
+     *
+     * @param {Vector} center
+     * @param {number} radius
+     * @param {Vector} direction (must be a unit vector)
+     * @returns {number}
+     */
     distanceToCircleAlongVector(center, radius, direction) {
-        if (center.subtract(this).dot(direction) <= 0) {
+        if (center.subtract(this).dot(direction) <= epsilon) {
             // moving away from the circle
             return Infinity;
         }
@@ -152,7 +172,7 @@ class Vector {
 
         const u = center.subtract(this);
         const uNormal = u.dot(direction.orth());
-        if (uNormal > radius) return Infinity; // trajectory of this never touches the circle
+        if (Math.abs(uNormal) > radius) return Infinity; // trajectory of this never touches the circle
         const uParallel = u.dot(direction);
         if (uParallel < 0) return Infinity; // this is moving away from the circle
         return uParallel - Math.sqrt(radius * radius - uNormal * uNormal);
@@ -293,6 +313,7 @@ class Obstacle {
         ctx.fill();
         ctx.stroke();
 
+        // DEBUG (draw all vertices that can be reached in a straight line)
         if (shouldDrawNeighbors) {
             ctx.save();
             ctx.strokeStyle = "#82bade";
@@ -446,21 +467,6 @@ class Room {
         ctx.restore();
     }
 
-    drawTrajectoryFromPoint(point, ctx) {
-        ctx.save();
-        ctx.lineWidth = 1;
-        ctx.strokeStyle = "#00ff00";
-        ctx.beginPath();
-        ctx.moveTo(point.x, point.y);
-        while (true) {
-            point = this.targetFromPoint(point);
-            if (point === undefined) break;
-            ctx.lineTo(point.x, point.y);
-        }
-        ctx.stroke();
-        ctx.restore();
-    }
-
     update() {
         const now = Date.now();
         const deltaTime = now - lastUpdate;
@@ -480,14 +486,14 @@ class Room {
 
 
 class Agent {
-    static update = Agent.simpleUpdate;
+    static update = Agent.prototype.simpleUpdate;
 
     constructor(position, speed) {
         this.position = position;
         this.speed = speed;
     }
 
-    static simpleUpdate(deltaTime, room) {
+    simpleUpdate(deltaTime, room) {
         let target = room.targetFromPoint(this.position);
         if (target === undefined) {
             // no path to exit (or already reached exit)
@@ -504,7 +510,7 @@ class Agent {
         }
     }
 
-    static updateWithSimpleCollision(deltaTime, room) {
+    updateWithSimpleCollision(deltaTime, room) {
         let target = room.targetFromPoint(this.position);
         if (target === undefined) {
             // no path to exit (or already reached exit)
@@ -514,25 +520,13 @@ class Agent {
 
         let moveDistance = this.speed * deltaTime;
         const moveDirection = target.subtract(this.position).normalize();
-        let squareNeighborhood = moveDistance + 2 * agentRadius;
-        squareNeighborhood *= squareNeighborhood;
+        const collisionRadius = 2 * agentRadius;
 
         // check for collisions with other agents
         for (const otherAgent of room.agents) {
-            if (otherAgent === this ||
-                this.position.squareDistanceTo(otherAgent.position) > squareNeighborhood) {
-                // no possible collision
-                continue;
-            }
-            const u2 = otherAgent.position.subtract(this.position);
-            const u2Normal = Math.abs(u2.dot(moveDirection.orth()));
-            if (u2Normal > 2 * agentRadius) continue;
-            const u2Parallel = u2.dot(moveDirection);
-            if (u2Parallel < 0) continue;
-            const collisionDistance = u2Parallel - Math.sqrt(4 * agentRadius * agentRadius - u2Normal * u2Normal);
-            if (collisionDistance < moveDistance) {
-                moveDistance = collisionDistance;
-            }
+            if (otherAgent === this) continue;
+            moveDistance = Math.min(moveDistance,
+                this.position.distanceToCircleAlongVector(otherAgent.position, collisionRadius, moveDirection));
         }
         if (this.position.distanceTo(target) <= moveDistance) {
             this.position = target;
@@ -541,68 +535,54 @@ class Agent {
         }
     }
 
-    static updateWithSimpleDeviation(deltaTime, room) {
+    updateWithSimpleDeviation(deltaTime, room) {
         let target = room.targetFromPoint(this.position);
         if (target === undefined) {
             // no path to exit (or already reached exit)
             room.agents.delete(this);
             return;
         }
+
         let moveDistance = this.speed * deltaTime;
         let moveDirection = target.subtract(this.position).normalize();
+        const collisionRadius = 2 * agentRadius;
 
-        let contactAgents = [];
+        let deviationFactor = 0;
+        let deviationVector = undefined;
         for (const otherAgent of room.agents) {
-            if (this.position.distanceTo(otherAgent.position) < 2 * agentRadius + epsilon) {
-                contactAgents.push(otherAgent);
+            if (otherAgent === this) continue;
+            if (this.position.distanceTo(otherAgent.position) >= collisionRadius) continue;
+
+            const v = otherAgent.position.subtract(this.position).normalize();
+            const d = v.dot(moveDirection);
+            if (d > deviationFactor) {  // this agent causes a bigger deviation
+                // move orthogonally to the direction to the position of the agent
+                deviationFactor = d;
+                deviationVector = v.det(moveDirection) > 0 ? v.orth() : v.orth().mult(-1);
             }
         }
 
-        let maxDeviationFactor = 0;
-        let maxDeviation = moveDirection;
-        for (const otherAgent of contactAgents) {
-            let directionFromOther = this.position.sub(otherAgent.position).normalize()
-            let factor = directionFromOther.dot(moveDirection);
-            if (factor < maxDeviationFactor) {
-                maxDeviationFactor = factor;
-                maxDeviation = directionFromOther.orth();
-                if (maxDeviation.dot(moveDirection) < 0) {
-                    maxDeviation = maxDeviation.mult(-1);
-                }
+        if (deviationVector === undefined) {
+            if (this.position.distanceTo(target) <= moveDistance) {
+                this.position = target;
+            } else {
+                this.position = this.position.add(moveDirection.mult(moveDistance));
             }
-        }
-        moveDirection = maxDeviation;
-
-        let squareNeighborhood = moveDistance + 2 * agentRadius;
-        squareNeighborhood *= squareNeighborhood;
-
-        // check for collisions with other agents
-        for (const otherAgent of room.agents) {
-            if (otherAgent === this ||
-                contactAgents.includes(otherAgent) ||
-                this.position.squareDistanceTo(otherAgent.position) > squareNeighborhood) {
-                // no possible collision
-                continue;
-            }
-            const u2 = otherAgent.position.subtract(this.position);
-            const u2Normal = Math.abs(u2.dot(moveDirection.orth()));
-            if (u2Normal > 2 * agentRadius) continue;
-            const u2Parallel = u2.dot(moveDirection);
-            if (u2Parallel < 0) continue;
-            const collisionDistance = u2Parallel - Math.sqrt(4 * agentRadius * agentRadius - u2Normal * u2Normal);
-            if (collisionDistance < moveDistance) {
-                moveDistance = collisionDistance;
-            }
-        }
-        if (this.position.distanceTo(target) <= moveDistance) {
-            this.position = target;
         } else {
-            this.position = this.position.add(moveDirection.mult(moveDistance));
+            this.moveAlongVector(deviationVector, moveDistance, room);
         }
     }
 
-    moveTo(target) {
-
+    moveAlongVector(direction, distance, room) {
+        for (const obstacle of room.obstacles) {
+            distance = Math.min(distance, obstacle.distanceFromPointAlongVector(this.position, direction));
+        }
+        for (const agent of room.agents) {
+            if (agent === this) continue;
+            distance = Math.min(distance,
+                this.position.distanceToCircleAlongVector(agent.position, 2 * agentRadius, direction));
+        }
+        this.position = this.position.add(direction.mult(distance));
     }
 
     draw(context) {
@@ -650,10 +630,13 @@ window.onload = function () {
 function selectStrategy(element) {
     switch (element.value) {
         case "none":
-            Agent.update = Agent.simpleUpdate;
+            Agent.update = Agent.prototype.simpleUpdate;
             break;
         case "simple":
-            Agent.update = Agent.updateWithSimpleCollision;
+            Agent.update = Agent.prototype.updateWithSimpleCollision;
+            break;
+        case "deviation":
+            Agent.update = Agent.prototype.updateWithSimpleDeviation;
             break;
         default:
             break;
