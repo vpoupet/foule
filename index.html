@@ -10,20 +10,22 @@
 <div>
     <button id="start-button">Start</button>
     <button id="clear-button">Clear</button>
+    <button id="add-one-button">Add 1</button>
+    <button id="add-ten-button">Add 10</button>
 </div>
 <div id="collision-select">
-    <input type="radio" id="no-collision" name="collision-select" onclick="selectStrategy(this);" value="none" checked>
+    <input type="radio" id="no-collision" name="collision-select" onclick="selectStrategy(this);" value="none">
     <label for="no-collision">No collision</label>
     <input type="radio" id="simple-collision" name="collision-select" onclick="selectStrategy(this);" value="simple">
     <label for="simple-collision">Simple collision</label>
-    <input type="radio" id="simple-deviation" name="collision-select" onclick="selectStrategy(this);" value="deviation">
+    <input type="radio" id="simple-deviation" name="collision-select" onclick="selectStrategy(this);" value="deviation" checked>
     <label for="simple-collision">Simple deviation</label>
 </div>
 <div>
     <input type="checkbox" id="draw-neighbors" onchange="toggleNeighbors();">Draw neighbors</div>
 </div>
 <script type="text/javascript" src="script.js"></script>
-<script type="text/javascript" src="room.js"></script>
+<script type="text/javascript" src="mall (light).js"></script>
 
 </body>
 </html>

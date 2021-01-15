@@ -3,9 +3,10 @@ let lastUpdate;
 let canvas;
 let context;
 let room;
+const AGENT_RADIUS = 5;
+const AGENT_SPEED = .1;
 
 // options / settings
-const agentRadius = 15;
 const epsilon = .001;
 let shouldDrawNeighbors = false;
 
@@ -303,6 +304,14 @@ class Obstacle {
         return distance;
     }
 
+    containsPoint(point) {
+        let nbIntersections = 0;
+        for (const [pointA, pointB] of this.segments()) {
+
+        }
+        return nbIntersections % 2 === 1;
+    }
+
     draw(ctx) {
         ctx.beginPath();
         ctx.moveTo(this.vertices[0].x, this.vertices[0].y);
@@ -347,6 +356,8 @@ class Exit {
 
 class Room {
     constructor(width, height, obstacles) {
+        this.width = width;
+        this.height = height;
         this.obstacles = obstacles;
         this.exits = [
             new Exit(new Vector(0, 0), new Vector(width, 0)),
@@ -469,7 +480,7 @@ class Room {
 
     update() {
         const now = Date.now();
-        const deltaTime = now - lastUpdate;
+        const deltaTime = 1000 / 60;
         lastUpdate = now;
 
         if (this.isRunning) {
@@ -486,10 +497,11 @@ class Room {
 
 
 class Agent {
-    static update = Agent.prototype.simpleUpdate;
+    static update = Agent.prototype.updateWithSimpleDeviation;
 
-    constructor(position, speed) {
+    constructor(position, radius, speed) {
         this.position = position;
+        this.radius = radius;
         this.speed = speed;
     }
 
@@ -520,13 +532,15 @@ class Agent {
 
         let moveDistance = this.speed * deltaTime;
         const moveDirection = target.subtract(this.position).normalize();
-        const collisionRadius = 2 * agentRadius;
 
         // check for collisions with other agents
         for (const otherAgent of room.agents) {
             if (otherAgent === this) continue;
             moveDistance = Math.min(moveDistance,
-                this.position.distanceToCircleAlongVector(otherAgent.position, collisionRadius, moveDirection));
+                this.position.distanceToCircleAlongVector(
+                    otherAgent.position,
+                    this.radius + otherAgent.radius,
+                    moveDirection));
         }
         if (this.position.distanceTo(target) <= moveDistance) {
             this.position = target;
@@ -545,13 +559,12 @@ class Agent {
 
         let moveDistance = this.speed * deltaTime;
         let moveDirection = target.subtract(this.position).normalize();
-        const collisionRadius = 2 * agentRadius;
 
         let deviationFactor = 0;
         let deviationVector = undefined;
         for (const otherAgent of room.agents) {
             if (otherAgent === this) continue;
-            if (this.position.distanceTo(otherAgent.position) >= collisionRadius) continue;
+            if (this.position.distanceTo(otherAgent.position) >= this.radius + otherAgent.radius) continue;
 
             const v = otherAgent.position.subtract(this.position).normalize();
             const d = v.dot(moveDirection);
@@ -580,14 +593,14 @@ class Agent {
         for (const agent of room.agents) {
             if (agent === this) continue;
             distance = Math.min(distance,
-                this.position.distanceToCircleAlongVector(agent.position, 2 * agentRadius, direction));
+                this.position.distanceToCircleAlongVector(agent.position, this.radius + agent.radius, direction));
         }
         this.position = this.position.add(direction.mult(distance));
     }
 
     draw(context) {
         context.beginPath();
-        context.arc(this.position.x, this.position.y, agentRadius, 0, 2 * Math.PI);
+        context.arc(this.position.x, this.position.y, this.radius, 0, 2 * Math.PI);
         context.fill();
     }
 }
@@ -595,11 +608,12 @@ class Agent {
 
 window.onload = function () {
     canvas = document.getElementById("canvas");
-    canvas.width = 1200;
-    canvas.height = 800;
+    canvas.width = room.width;
+    canvas.height = room.height;
+
     context = canvas.getContext("2d");
 
-    let startButton = document.getElementById("start-button");
+    const startButton = document.getElementById("start-button");
     startButton.addEventListener("click", event => {
         room.isRunning = !room.isRunning;
         if (room.isRunning) {
@@ -609,18 +623,30 @@ window.onload = function () {
         }
     });
 
-    let clearButton = document.getElementById("clear-button");
+    const clearButton = document.getElementById("clear-button");
     clearButton.addEventListener("click", event => {
         room.isRunning = false;
         startButton.innerHTML = "Start";
         room.agents.clear();
     });
 
+    const addAgentButton = document.getElementById("add-one-button");
+    addAgentButton.addEventListener("click", event => {
+        addAgent();
+    });
+
+    const addAgentsButton = document.getElementById("add-ten-button");
+    addAgentsButton.addEventListener("click", event => {
+        for (let i = 0; i < 10; i++) {
+            addAgent();
+        }
+    });
+
     canvas.addEventListener("click", event => {
         const rect = document.getElementById("canvas").getBoundingClientRect();
         const x = (event.clientX - rect.left);
         const y = (event.clientY - rect.top);
-        room.agents.add(new Agent(new Vector(x, y), .1));
+        room.agents.add(new Agent(new Vector(x, y), AGENT_RADIUS, AGENT_SPEED));
     });
 
     lastUpdate = Date.now();
@@ -646,4 +672,10 @@ function selectStrategy(element) {
 function toggleNeighbors() {
     const element = document.getElementById("draw-neighbors");
     shouldDrawNeighbors = element.checked;
+}
+
+function addAgent() {
+    const x = Math.random() * room.width;
+    const y = Math.random() * room.height;
+    room.agents.add(new Agent(new Vector(x, y), AGENT_RADIUS, AGENT_SPEED));
 }
