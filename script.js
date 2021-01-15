@@ -3,8 +3,8 @@ let lastUpdate;
 let canvas;
 let context;
 let room;
-const AGENT_RADIUS = 5;
-const AGENT_SPEED = .1;
+let AGENT_RADIUS = 5;
+let AGENT_SPEED = .1;
 
 // options / settings
 const epsilon = .001;
@@ -356,6 +356,7 @@ class Exit {
 
 class Room {
     constructor(width, height, obstacles) {
+        this.isLoaded = true;
         this.width = width;
         this.height = height;
         this.obstacles = obstacles;
@@ -491,7 +492,7 @@ class Room {
 
         context.clearRect(0, 0, canvas.width, canvas.height);
         this.draw(context);
-        requestAnimationFrame(this.update.bind(this));
+        if (this.isLoaded) requestAnimationFrame(this.update.bind(this));
     }
 }
 
@@ -608,11 +609,7 @@ class Agent {
 
 window.onload = function () {
     canvas = document.getElementById("canvas");
-    canvas.width = room.width;
-    canvas.height = room.height;
-
     context = canvas.getContext("2d");
-
     const startButton = document.getElementById("start-button");
     startButton.addEventListener("click", event => {
         room.isRunning = !room.isRunning;
@@ -649,8 +646,7 @@ window.onload = function () {
         room.agents.add(new Agent(new Vector(x, y), AGENT_RADIUS, AGENT_SPEED));
     });
 
-    lastUpdate = Date.now();
-    requestAnimationFrame(room.update.bind(room));
+    loadRoom(0);
 }
 
 function selectStrategy(element) {
@@ -678,4 +674,26 @@ function addAgent() {
     const x = Math.random() * room.width;
     const y = Math.random() * room.height;
     room.agents.add(new Agent(new Vector(x, y), AGENT_RADIUS, AGENT_SPEED));
+}
+
+function loadRoom(roomID) {
+    if (room) {
+        // unload current room
+        room.isLoaded = false;
+        room.isRunning = false;
+        room.agents.clear();
+    }
+
+    room = availableRooms[roomID];
+    if (room === undefined) {
+        room = availableRooms[0];
+    }
+    room.isLoaded = true;
+
+    document.getElementById("start-button").innerHTML = "Start";
+    canvas.width = room.width;
+    canvas.height = room.height;
+
+    lastUpdate = Date.now();
+    requestAnimationFrame(room.update.bind(room));
 }

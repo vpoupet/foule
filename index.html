@@ -8,6 +8,14 @@
 <body>
 <canvas id="canvas"></canvas>
 <div>
+    Room:
+    <select name="room" id="romm-select" onchange="loadRoom(this.value);">
+        <option value="0">Simple</option>
+        <option value="1">Mall (small)</option>
+        <option value="2">Mall (large)</option>
+    </select>
+</div>
+<div>
     <button id="start-button">Start</button>
     <button id="clear-button">Clear</button>
     <button id="add-one-button">Add 1</button>
@@ -18,14 +26,17 @@
     <label for="no-collision">No collision</label>
     <input type="radio" id="simple-collision" name="collision-select" onclick="selectStrategy(this);" value="simple">
     <label for="simple-collision">Simple collision</label>
-    <input type="radio" id="simple-deviation" name="collision-select" onclick="selectStrategy(this);" value="deviation" checked>
+    <input type="radio" id="simple-deviation" name="collision-select" onclick="selectStrategy(this);" value="deviation"
+           checked>
     <label for="simple-collision">Simple deviation</label>
 </div>
 <div>
-    <input type="checkbox" id="draw-neighbors" onchange="toggleNeighbors();">Draw neighbors</div>
+    <input type="checkbox" id="draw-neighbors" onchange="toggleNeighbors();">Draw neighbors
+</div>
 </div>
 <script type="text/javascript" src="script.js"></script>
-<script type="text/javascript" src="room.js"></script>
-
+<script type="text/javascript" src="simple.js"></script>
+<script type="text/javascript" src="mall_light.js"></script>
+<script type="text/javascript" src="mall.js"></script>
 </body>
 </html>
