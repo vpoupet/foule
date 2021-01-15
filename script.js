@@ -590,9 +590,11 @@ class Agent {
                 this.position = this.position.add(moveDirection.mult(moveDistance));
             }
         } else {
-            // Agent has been deviated from the previous trajectory, target needs to be recomputed
-            this.target = undefined;
-            this.moveAlongVector(deviationVector, moveDistance, room);
+            const distance = this.moveAlongVector(deviationVector, moveDistance, room);
+            if (distance !== 0) {
+                // Agent has been deviated from the previous trajectory, target needs to be recomputed
+                this.target = undefined;
+            }
         }
     }
 
@@ -605,7 +607,10 @@ class Agent {
             distance = Math.min(distance,
                 this.position.distanceToCircleAlongVector(agent.position, this.radius + agent.radius, direction));
         }
-        this.position = this.position.add(direction.mult(distance));
+        if (distance !== 0) {
+            this.position = this.position.add(direction.mult(distance));
+        }
+        return distance;
     }
 
     draw(context) {
