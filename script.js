@@ -504,35 +504,40 @@ class Agent {
         this.position = position;
         this.radius = radius;
         this.speed = speed;
+        this.target = undefined;
     }
 
     simpleUpdate(deltaTime, room) {
-        let target = room.targetFromPoint(this.position);
-        if (target === undefined) {
+        if (this.target === undefined || this.target.equals(this.position)) {
+            this.target = room.targetFromPoint(this.position);
+        }
+        if (this.target === undefined) {
             // no path to exit (or already reached exit)
             room.agents.delete(this);
             return;
         }
 
         const moveDistance = this.speed * deltaTime;
-        if (this.position.distanceTo(target) <= moveDistance) {
-            this.position = target;
+        if (this.position.distanceTo(this.target) <= moveDistance) {
+            this.position = this.target;
         } else {
-            const moveDirection = target.subtract(this.position).normalize();
+            const moveDirection = this.target.subtract(this.position).normalize();
             this.position = this.position.add(moveDirection.mult(moveDistance));
         }
     }
 
     updateWithSimpleCollision(deltaTime, room) {
-        let target = room.targetFromPoint(this.position);
-        if (target === undefined) {
+        if (this.target === undefined || this.target.equals(this.position)) {
+            this.target = room.targetFromPoint(this.position);
+        }
+        if (this.target === undefined) {
             // no path to exit (or already reached exit)
             room.agents.delete(this);
             return;
         }
 
         let moveDistance = this.speed * deltaTime;
-        const moveDirection = target.subtract(this.position).normalize();
+        const moveDirection = this.target.subtract(this.position).normalize();
 
         // check for collisions with other agents
         for (const otherAgent of room.agents) {
@@ -543,23 +548,25 @@ class Agent {
                     this.radius + otherAgent.radius,
                     moveDirection));
         }
-        if (this.position.distanceTo(target) <= moveDistance) {
-            this.position = target;
+        if (this.position.distanceTo(this.target) <= moveDistance) {
+            this.position = this.target;
         } else {
             this.position = this.position.add(moveDirection.mult(moveDistance));
         }
     }
 
     updateWithSimpleDeviation(deltaTime, room) {
-        let target = room.targetFromPoint(this.position);
-        if (target === undefined) {
+        if (this.target === undefined || this.target.equals(this.position)) {
+            this.target = room.targetFromPoint(this.position);
+        }
+        if (this.target === undefined) {
             // no path to exit (or already reached exit)
             room.agents.delete(this);
             return;
         }
 
         let moveDistance = this.speed * deltaTime;
-        let moveDirection = target.subtract(this.position).normalize();
+        let moveDirection = this.target.subtract(this.position).normalize();
 
         let deviationFactor = 0;
         let deviationVector = undefined;
@@ -577,12 +584,14 @@ class Agent {
         }
 
         if (deviationVector === undefined) {
-            if (this.position.distanceTo(target) <= moveDistance) {
-                this.position = target;
+            if (this.position.distanceTo(this.target) <= moveDistance) {
+                this.position = this.target;
             } else {
                 this.position = this.position.add(moveDirection.mult(moveDistance));
             }
         } else {
+            // Agent has been deviated from the previous trajectory, target needs to be recomputed
+            this.target = undefined;
             this.moveAlongVector(deviationVector, moveDistance, room);
         }
     }
